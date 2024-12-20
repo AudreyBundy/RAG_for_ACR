@@ -1,0 +1,34 @@
+[
+    {
+    "bugType": "CHANGE_IDENTIFIER",
+    "fixCommitSHA1": "114870164ba9822afc3a92eefe5258f54a1c6a17",
+    "fixCommitParentSHA1": "845ab7d135ab688e4943bd0f5472f0a5401528f8",
+    "bugFilePath": "modules/activiti-engine/src/test/java/org/activiti/engine/test/api/runtime/TaskInvolvementTest.java",
+    "fixPatch": "diff --git a/modules/activiti-engine/src/test/java/org/activiti/engine/test/api/runtime/TaskInvolvementTest.java b/modules/activiti-engine/src/test/java/org/activiti/engine/test/api/runtime/TaskInvolvementTest.java\nindex 4de3611..f71b5a3 100644\n--- a/modules/activiti-engine/src/test/java/org/activiti/engine/test/api/runtime/TaskInvolvementTest.java\n+++ b/modules/activiti-engine/src/test/java/org/activiti/engine/test/api/runtime/TaskInvolvementTest.java\n@@ -26,7 +26,7 @@\n             assertEquals(1, taskService.createTaskQuery()\n                     .or()\n                     .taskInvolvedUser(\"involvedUser\")\n-                    .taskInvolvedGroups(groups)\n+                    .taskInvolvedGroupsIn(groups)\n                     .endOr()\n                     .count());\n \n",
+    "projectName": "Activiti.Activiti",
+    "bugLineNum": 26,
+    "bugNodeStartChar": 797,
+    "bugNodeLength": 157,
+    "fixLineNum": 26,
+    "fixNodeStartChar": 797,
+    "fixNodeLength": 159,
+    "sourceBeforeFix": "taskService.createTaskQuery().or().taskInvolvedUser(\"involvedUser\").taskInvolvedGroups(groups)",
+    "sourceAfterFix": "taskService.createTaskQuery().or().taskInvolvedUser(\"involvedUser\").taskInvolvedGroupsIn(groups)"
+  },
+    {
+    "bugType": "OVERLOAD_METHOD_MORE_ARGS",
+    "fixCommitSHA1": "3927f0c59ffec5a7b79d6dc82b085d945f5e3d98",
+    "fixCommitParentSHA1": "25b0720ee5834f0902517e95e40b67e445e04949",
+    "bugFilePath": "acra-core/src/main/java/org/acra/data/CrashReportDataFactory.java",
+    "fixPatch": "diff --git a/acra-core/src/main/java/org/acra/data/CrashReportDataFactory.java b/acra-core/src/main/java/org/acra/data/CrashReportDataFactory.java\nindex 4e2c16e..1c9db8a 100644\n--- a/acra-core/src/main/java/org/acra/data/CrashReportDataFactory.java\n+++ b/acra-core/src/main/java/org/acra/data/CrashReportDataFactory.java\n@@ -50,7 +50,7 @@\n         this.config \u003d config;\n         collectors \u003d new ArrayList\u003c\u003e();\n         //noinspection ForLoopReplaceableByForEach need to catch exception in iterator.next()\n-        for (final Iterator\u003cCollector\u003e iterator \u003d ServiceLoader.load(Collector.class).iterator(); iterator.hasNext(); ) {\n+        for (final Iterator\u003cCollector\u003e iterator \u003d ServiceLoader.load(Collector.class, getClass().getClassLoader()).iterator(); iterator.hasNext(); ) {\n             try {\n                 final Collector collector \u003d iterator.next();\n                 if (ACRA.DEV_LOGGING) ACRA.log.d(ACRA.LOG_TAG, \"Loaded collector of class \" + collector.getClass().getName());\n",
+    "projectName": "ACRA.acra",
+    "bugLineNum": 53,
+    "bugNodeStartChar": 1784,
+    "bugNodeLength": 35,
+    "fixLineNum": 53,
+    "fixNodeStartChar": 1784,
+    "fixNodeLength": 64,
+    "sourceBeforeFix": "ServiceLoader.load(Collector.class)",
+    "sourceAfterFix": "ServiceLoader.load(Collector.class,getClass().getClassLoader())"
+  }
+  ]
