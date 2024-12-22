@@ -5,6 +5,9 @@ import pickle
 from transformers import RobertaTokenizer, RobertaModel, pipeline, AutoTokenizer, AutoModelForCausalLM
 import torch
 import time
+from langchain.prompts import PromptTemplate
+import re
+import pandas as pd
 
 import os
 
@@ -38,6 +41,47 @@ generator = pipeline(
     model=gen_model,
     tokenizer=gen_tokenizer
 )
+
+# 从模型输出中提取结果
+def output_split(generated_text):
+
+
+    # 使用正则表达式寻找最后一个'bugType':或者"bugType":及其后的内容
+    bugtype = list(
+        re.finditer(r"['\"]bugtype\\?_out['\"]:\s*['\"](.*?)['\"]", generated_text, re.IGNORECASE)
+    )
+    # 提取最后一个匹配结果
+    if bugtype:
+        last_match = bugtype[-1]
+        bug_type_value = last_match.group(1)
+    else:
+        bug_type_value = None
+
+    # 使用正则表达式寻找最后一个'bugType':或者"bugType":及其后的内容
+    defect_code = list(
+        re.finditer(r"['\"]defect\\?_code['\"]:\s*['\"](.*?)['\"]", generated_text, re.IGNORECASE)
+    )
+    # 提取最后一个匹配结果
+    if defect_code:
+        last_match = defect_code[-1]
+        defect_code_value = last_match.group(1)
+    else:
+        defect_code_value = None
+
+    # 使用正则表达式寻找最后一个'bugType':或者"bugType":及其后的内容
+    fix = list(
+        re.finditer(r"['\"]fix['\"]:\s*['\"](.*?)['\"]", generated_text, re.IGNORECASE)
+    )
+    # 提取最后一个匹配结果
+    if fix:
+        last_match = fix[-1]
+        fix_value = last_match.group(1)
+    else:
+        fix_value = None
+
+    return bug_type_value, defect_code_value, fix_value
+
+
 # 获取代码片段的向量表示
 def get_code_embedding(code):
     inputs = em_tokenizer(code, return_tensors="pt", truncation=True, padding=True)
@@ -53,13 +97,13 @@ def get_result():
     record_num = 0
     time_sum_start = time.time()
     for record in data:
-        # todo 记录每一次生成的时间
         start_time = time.time()
         print("原始数据：", record)
         new_code = record.get('new', '')
         query_vector = get_code_embedding(new_code)
         query_vector = np.array([query_vector], dtype=np.float32)
         # 归一化查询向量
+        # todo 对比方法记得换
         faiss.normalize_L2(query_vector)
         # 进行检索，返回最相似的k个结果
         D, I = index.search(query_vector, k=2)  # 返回最相似的两个结果
@@ -72,60 +116,91 @@ def get_result():
         record['similarFix'] = result_record
         print("添加了检索结果：",record)
         output_template = {
-            "bugType": "",
-            "defect_code": "",
-            "fix": ""
+            "bugtype_out": "CHANGE_CALLER_IN_FUNCTION_CALL",
+            "defect_code": "stacktrace.indexOf(':')",
+            "fix": "firstLine.indexOf(':')"
         }
         prompt =f"""
-        I will give the following output:{record} . where fixPatch is a code diff information. simpleFix are examples of code fixes similar to the submitted code that you should refer to when answering.
-        Your answer should only contain the following information:{output_template}.Among them, bugtype is the code defect type you identified from old_code, defect_code is the specific defect code you identified, and fix means you give the repair code. You just need to give a final output.Please note that you only need to give a json output based on the template I gave, which is {output_template}. Also don’t forget to refer to similarFix.
+        You are a coding assistant. Your task is to analyze the given record and produce a JSON output.
+        description: You are a coding assistant.Your task is to analyze the code diff I gave you, identify the only defective code in it, and give the defect type, as well as your suggested repair code.Refer to simpleFix while generating the fix.
+        Input: {record}
+        standard output Example:{output_template}
+        Output must be valid JSON.Your final output should only have one result.And you should start with 'final output' before final output
         """
         # 将生成结果存入文件
+        # prompt = PromptTemplate(
+        #     input_variables=["record", "output_template"],
+        #     template=prompt
+        # )
         print("prompt：",prompt)
         output = generator(prompt, max_new_tokens=2000, do_sample=True, temperature=0.7)
         # 提取 'generated_text' 字段中的最后一个 JSON
         generated_text = output[0]['generated_text']
         print("原始结果：",generated_text)
 
-        # 查找最后一个 "{'bugType':"
-        start_index = generated_text.rfind("following output:{'bugType':")
+        bugtype,defect_code,fix = output_split(generated_text)
 
-        # 查找最后一个 "}"
-        end_index = generated_text.find("'}") + 1  # 加1是为了包括最后的 '}'  # 加1是为了包括最后的 '}'
-
-        # 获取完整的 JSON 字符串
-        json_str = generated_text[start_index:end_index]
-        json_str = json_str.replace("'", "\"").replace("\\\"", "\"")
-        json_str = json_str.replace("following output:", "", 1)
+        bugtype = bugtype.replace("\\","")
+        print("缺陷类型：",bugtype)
+        print("缺陷代码",defect_code)
+        print("修复代码",fix)
         end_time = time.time()
         generate_time = round(end_time - start_time, 2)
-        json_str += f',"generate_time":{generate_time}'
-        # json_data = json.loads(json_str)
-        # json_data["generate_time"] = generate_time
-        # json_str = json.dumps(json_data)
-        if json_str == "":
-            if os.path.exists(error_output_file_path) and os.path.getsize(error_output_file_path) > 0:
-                with open(error_output_file_path, 'a', encoding='utf-8') as f:
-                    f.write(',\n' + json.dumps(record))
-            else:
-                with open(error_output_file_path, 'a', encoding='utf-8') as f:
-                    f.write(json.dumps(record))
-        else:
-            if os.path.exists(output_file_path) and os.path.getsize(output_file_path) > 0:
-                with open(output_file_path, 'a', encoding='utf-8') as f:
-                    f.write(',\n' + json_str)
-            else:
-                with open(output_file_path, 'a', encoding='utf-8') as f:
-                    f.write(json_str)
-        print("生成的结果：",json_str)
+        print("生成时间：",generate_time)
+        # 创建或更新 DataFrame
+        data = {
+            "缺陷类型": [bugtype],
+            "缺陷代码": [defect_code],
+            "修复代码": [fix],
+            "单次生成时间": [generate_time],
+            "fixCommitSHA1": [record.get('fixCommitSHA1', '')],
+            "fixCommitParentSHA1": [record.get('fixCommitParentSHA1', '')],
+        }
+        print("生成的数据：",data)
+        # 定义文件路径
+        file_path = "/root/autodl-fs/dataSet/output/gen_data.xlsx"
 
+        # 将新数据转换为 DataFrame
+        new_data = pd.DataFrame(data)
+
+        try:
+            # 尝试加载现有文件
+            with pd.ExcelWriter(file_path, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
+                # 写入新数据到同一工作表的最后一行
+                new_data.to_excel(writer, index=False, header=False, startrow=writer.sheets['Sheet1'].max_row)
+        except FileNotFoundError:
+            # 如果文件不存在，直接创建新文件
+            new_data.to_excel(file_path, index=False)
         record_num += 1
         if record_num > 1000:
             break
     time_sum_end = time.time()
     time_sum = round(time_sum_end - time_sum_start,2)
-    print("该数据集数量：",record_num)
+    print("本次运行数据量：",record_num)
     print("总时间：",time_sum)
+    data = {
+        "缺陷类型": 0,
+        "缺陷代码": 0,
+        "修复代码": 0,
+        "单次生成时间": [time_sum],
+        "fixCommitSHA1": 0,
+        "fixCommitParentSHA1": 0,
+    }
+    print("生成的数据：", data)
+    # 定义文件路径
+    file_path = "/root/autodl-fs/dataSet/output/gen_data.xlsx"
+
+    # 将新数据转换为 DataFrame
+    new_data = pd.DataFrame(data)
+
+    try:
+        # 尝试加载现有文件
+        with pd.ExcelWriter(file_path, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
+            # 写入新数据到同一工作表的最后一行
+            new_data.to_excel(writer, index=False, header=False, startrow=writer.sheets['Sheet1'].max_row)
+    except FileNotFoundError:
+        # 如果文件不存在，直接创建新文件
+        new_data.to_excel(file_path, index=False)
 if __name__ == '__main__':
     get_result()
 
