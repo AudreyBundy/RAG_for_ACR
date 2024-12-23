@@ -9,9 +9,15 @@ from langchain.prompts import PromptTemplate
 import re
 import pandas as pd
 
+from evaluation.bleu_rouge import calculate_bleu, calculate_rouge
+from evaluation.precision import calculate_precision
+
+
 import os
 
 TOP_K = 2
+
+
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 error_output_file_path = 'error_output.json'
@@ -90,6 +96,13 @@ def get_code_embedding(code):
     return outputs.last_hidden_state[:, 0, :].numpy().flatten()  # 提取 [CLS] 向量
 # 拼接检索结果
 def get_result():
+    # 评估指标
+    bleu = 0.0
+    rouge1 = 0.0
+    rouge2 = 0.0
+    rougeL = 0.0
+    precision = 0.0
+
     input_data_path = r'/autodl-fs/data/dataSet/many_withdiff_largesstubs.json'
     with open(input_data_path, 'r') as f:
         data = json.load(f)
@@ -98,7 +111,7 @@ def get_result():
     time_sum_start = time.time()
     for record in data:
         start_time = time.time()
-        print("原始数据：", record)
+        # print("原始数据：", record)
         new_code = record.get('new', '')
         query_vector = get_code_embedding(new_code)
         query_vector = np.array([query_vector], dtype=np.float32)
@@ -114,7 +127,7 @@ def get_result():
         for idx in I[0]:
             result_record.append(metadata[idx])
         record['similarFix'] = result_record
-        print("添加了检索结果：",record)
+        # print("添加了检索结果：",record)
         output_template = {
             "bugtype_out": "CHANGE_CALLER_IN_FUNCTION_CALL",
             "defect_code": "stacktrace.indexOf(':')",
@@ -132,7 +145,7 @@ def get_result():
         #     input_variables=["record", "output_template"],
         #     template=prompt
         # )
-        print("prompt：",prompt)
+        # print("prompt：",prompt)
         output = generator(prompt, max_new_tokens=2000, do_sample=True, temperature=0.7)
         # 提取 'generated_text' 字段中的最后一个 JSON
         generated_text = output[0]['generated_text']
@@ -141,24 +154,42 @@ def get_result():
         bugtype,defect_code,fix = output_split(generated_text)
 
         bugtype = bugtype.replace("\\","")
-        print("缺陷类型：",bugtype)
-        print("缺陷代码",defect_code)
-        print("修复代码",fix)
+        # print("缺陷类型：",bugtype)
+        # print("缺陷代码",defect_code)
+        # print("修复代码",fix)
         end_time = time.time()
         generate_time = round(end_time - start_time, 2)
-        print("生成时间：",generate_time)
+        # print("生成时间：",generate_time)
+
+        # 计算BLEU和ROUGE
+        bleu_per = calculate_bleu(fix, record.get('sourceAfterFix', ''))
+        rouge1_per,rouge2_per,rougeL_per = calculate_rouge(fix, record.get('sourceAfterFix', ''))
+        precision_pre = calculate_precision(defect_code, record.get('sourceBeforeFix', ''))
+
+        bleu += bleu_per
+        rouge1 += rouge1_per
+        rouge2 += rouge2_per
+        rougeL += rougeL_per
+        precision += precision_pre
+
+
         # 创建或更新 DataFrame
         data = {
             "缺陷类型": [bugtype],
             "缺陷代码": [defect_code],
             "修复代码": [fix],
             "单次生成时间": [generate_time],
+            "本次生成的BLEU": [bleu_per],
+            "本次生成的rouge1": [rouge1_per],
+            "本次生成的rouge2": [rouge2_per],
+            "本次生成的rougeL": [rougeL_per],
+            "本次识别的precision": [precision_pre],
             "fixCommitSHA1": [record.get('fixCommitSHA1', '')],
             "fixCommitParentSHA1": [record.get('fixCommitParentSHA1', '')],
         }
         print("生成的数据：",data)
         # 定义文件路径
-        file_path = "/root/autodl-fs/dataSet/output/gen_data.xlsx"
+        file_path = "/root/autodl-fs/dataSet/output/gen_data_v2.xlsx"
 
         # 将新数据转换为 DataFrame
         new_data = pd.DataFrame(data)
@@ -172,10 +203,16 @@ def get_result():
             # 如果文件不存在，直接创建新文件
             new_data.to_excel(file_path, index=False)
         record_num += 1
-        if record_num > 1000:
+        if record_num > 2:
             break
     time_sum_end = time.time()
     time_sum = round(time_sum_end - time_sum_start,2)
+
+    bleu = round(bleu / record_num, 4)
+    rouge1 = round(rouge1 / record_num, 4)
+    rouge2 = round(rouge2 / record_num, 4)
+    rougeL = round(rougeL / record_num, 4)
+    precision = round(precision / record_num, 4)
     print("本次运行数据量：",record_num)
     print("总时间：",time_sum)
     data = {
@@ -183,12 +220,17 @@ def get_result():
         "缺陷代码": 0,
         "修复代码": 0,
         "单次生成时间": [time_sum],
+        "本次生成的BLEU": [bleu],
+        "本次生成的rouge1": [rouge1],
+        "本次生成的rouge2": [rouge2],
+        "本次生成的rougeL": [rougeL],
+        "本次识别的precision": [precision],
         "fixCommitSHA1": 0,
         "fixCommitParentSHA1": 0,
     }
     print("生成的数据：", data)
     # 定义文件路径
-    file_path = "/root/autodl-fs/dataSet/output/gen_data.xlsx"
+    file_path = "/root/autodl-fs/dataSet/output/gen_data_v2.xlsx"
 
     # 将新数据转换为 DataFrame
     new_data = pd.DataFrame(data)
