@@ -10,7 +10,7 @@ import re
 import pandas as pd
 
 from evaluation.bleu_rouge import calculate_bleu, calculate_rouge
-from evaluation.precision import calculate_precision
+from evaluation.precision import calculate_precision,calculate_defect_type_precision
 
 
 import os
@@ -50,6 +50,15 @@ generator = pipeline(
 
 # 从模型输出中提取结果
 def output_split(generated_text):
+    hasissue = list(
+        re.finditer(r"['\"]has\\?_issue['\"]:\s*['\"](.*?)['\"]", generated_text, re.IGNORECASE)
+    )
+    # 提取最后一个匹配结果
+    if hasissue:
+        last_match = hasissue[-1]
+        hasissue_value = last_match.group(1)
+    else:
+        hasissue_value = None
 
 
     # 使用正则表达式寻找最后一个'bugType':或者"bugType":及其后的内容
@@ -63,7 +72,7 @@ def output_split(generated_text):
     else:
         bug_type_value = None
 
-    # 使用正则表达式寻找最后一个'bugType':或者"bugType":及其后的内容
+
     defect_code = list(
         re.finditer(r"['\"]defect\\?_code['\"]:\s*['\"](.*?)['\"]", generated_text, re.IGNORECASE)
     )
@@ -74,7 +83,7 @@ def output_split(generated_text):
     else:
         defect_code_value = None
 
-    # 使用正则表达式寻找最后一个'bugType':或者"bugType":及其后的内容
+
     fix = list(
         re.finditer(r"['\"]fix['\"]:\s*['\"](.*?)['\"]", generated_text, re.IGNORECASE)
     )
@@ -85,7 +94,7 @@ def output_split(generated_text):
     else:
         fix_value = None
 
-    return bug_type_value, defect_code_value, fix_value
+    return hasissue_value,bug_type_value, defect_code_value, fix_value
 
 
 # 获取代码片段的向量表示
@@ -111,8 +120,9 @@ def get_result():
     time_sum_start = time.time()
     for record in data:
         start_time = time.time()
-        # print("原始数据：", record)
-        new_code = record.get('new', '')
+        print("原始数据：", record)
+        new_code = record.get('sourceBeforeFix', '')
+        print("新代码：",new_code)
         query_vector = get_code_embedding(new_code)
         query_vector = np.array([query_vector], dtype=np.float32)
         # 归一化查询向量
@@ -127,8 +137,10 @@ def get_result():
         for idx in I[0]:
             result_record.append(metadata[idx])
         record['similarFix'] = result_record
-        # print("添加了检索结果：",record)
+        print("检索结果：",result_record)
         output_template = {
+            # todo hasissue确定提取的时候是否会造成混淆
+            "has_issue": "True",
             "bugtype_out": "CHANGE_CALLER_IN_FUNCTION_CALL",
             "defect_code": "stacktrace.indexOf(':')",
             "fix": "firstLine.indexOf(':')"
@@ -137,7 +149,7 @@ def get_result():
         You are a coding assistant. Your task is to analyze the given record and produce a JSON output.
         description: You are a coding assistant.Your task is to analyze the code diff I gave you, identify the only defective code in it, and give the defect type, as well as your suggested repair code.Refer to simpleFix while generating the fix.
         Input: {record}
-        standard output Example:{output_template}
+        standard output Example:{output_template}.defect_code is the defective code you found from sourceBeforeFix, and fix is the repair code you gave for the identified defect_code. 
         Output must be valid JSON.Your final output should only have one result.And you should start with 'final output' before final output
         """
         # 将生成结果存入文件
@@ -151,9 +163,11 @@ def get_result():
         generated_text = output[0]['generated_text']
         print("原始结果：",generated_text)
 
-        bugtype,defect_code,fix = output_split(generated_text)
+        hasissue,bugtype,defect_code,fix = output_split(generated_text)
 
         bugtype = bugtype.replace("\\","")
+        defect_code = defect_code.replace("\\","")
+        fix = fix.replace("\\","")
         # print("缺陷类型：",bugtype)
         # print("缺陷代码",defect_code)
         # print("修复代码",fix)
@@ -165,6 +179,7 @@ def get_result():
         bleu_per = calculate_bleu(fix, record.get('sourceAfterFix', ''))
         rouge1_per,rouge2_per,rougeL_per = calculate_rouge(fix, record.get('sourceAfterFix', ''))
         precision_pre = calculate_precision(defect_code, record.get('sourceBeforeFix', ''))
+        precision_bugtype_pre = calculate_defect_type_precision(bugtype, record.get('bugType', ''))
 
         bleu += bleu_per
         rouge1 += rouge1_per
@@ -175,15 +190,20 @@ def get_result():
 
         # 创建或更新 DataFrame
         data = {
+            "有无缺陷":[hasissue],
             "缺陷类型": [bugtype],
+            "原始缺陷类型": [record.get('bugType', '')],
             "缺陷代码": [defect_code],
+            "原始缺陷代码": [record.get('sourceBeforeFix', '')],
             "修复代码": [fix],
+            "原始修复代码": [record.get('sourceAfterFix', '')],
             "单次生成时间": [generate_time],
             "本次生成的BLEU": [bleu_per],
             "本次生成的rouge1": [rouge1_per],
             "本次生成的rouge2": [rouge2_per],
             "本次生成的rougeL": [rougeL_per],
-            "本次识别的precision": [precision_pre],
+            "本次识别缺陷类型的precision": [precision_pre],
+            "本次识别位置的precision": [precision_bugtype_pre],
             "fixCommitSHA1": [record.get('fixCommitSHA1', '')],
             "fixCommitParentSHA1": [record.get('fixCommitParentSHA1', '')],
         }
@@ -203,7 +223,7 @@ def get_result():
             # 如果文件不存在，直接创建新文件
             new_data.to_excel(file_path, index=False)
         record_num += 1
-        if record_num > 2:
+        if record_num > 600:
             break
     time_sum_end = time.time()
     time_sum = round(time_sum_end - time_sum_start,2)
@@ -217,6 +237,7 @@ def get_result():
     print("总时间：",time_sum)
     data = {
         "缺陷类型": 0,
+        "原始缺陷类型": [record.get('bugType', '')],
         "缺陷代码": 0,
         "修复代码": 0,
         "单次生成时间": [time_sum],
@@ -224,6 +245,7 @@ def get_result():
         "本次生成的rouge1": [rouge1],
         "本次生成的rouge2": [rouge2],
         "本次生成的rougeL": [rougeL],
+        "本次识别缺陷类型的precision": [precision_pre],
         "本次识别的precision": [precision],
         "fixCommitSHA1": 0,
         "fixCommitParentSHA1": 0,
