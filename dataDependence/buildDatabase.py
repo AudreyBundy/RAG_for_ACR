@@ -1,18 +1,50 @@
 import faiss
 import numpy as np
 import torch
-from transformers import RobertaTokenizer, RobertaModel
+from transformers import RobertaTokenizer, RobertaModel, RobertaConfig
 import pickle
 import json
 import os
+from retriver.model import SimpleModel
 
 # 设置环境变量以避免库冲突
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
-modele_path = r'D:\GRADUATION\Nju\llm\codebert'
+modele_path = r'/autodl-fs/data/codebert'
+train_weight_path = r'/autodl-fs/data/retriver/RAG_FOR_ACR/save/contrastive_model.pt'
 
 # 加载 CodeBERT 模型和分词器
-tokenizer = RobertaTokenizer.from_pretrained(modele_path)
-model = RobertaModel.from_pretrained(modele_path)
+
+# 模型定义
+# class Args:
+#     pretrained_dir = "/root/autodl-fs/codebert"          # 预训练模型目录
+#     vocab_size = 50265                       # 词汇表大小
+#     num_vec = 1                              # 对比学习中每个样本的向量数
+#     moco_T = 0.07                            # 温度参数
+#     learning_rate = 1e-5                     # 学习率
+#     batch_size = 32                          # 批次大小
+#     num_epochs = 5                           # 训练轮数
+#     train_data_path = "contrastive_train_data_v1.json"      # 训练数据路径
+#     device = "cuda" if torch.cuda.is_available() else "cpu"  # 自动选择设备
+#     from_pretrained = True  # 是否从预训练模型加载
+
+
+# config = RobertaConfig.from_pretrained(modele_path)
+# args = Args()
+# model = SimpleModel(config, args).cuda()
+# model.load_state_dict(torch.load(train_weight_path))
+
+# tokenizer = RobertaTokenizer.from_pretrained(modele_path)
+# model = RobertaModel.from_pretrained(modele_path)
+# model.load_state_dict(torch.load(train_weight_path), strict=False)
+# model.eval()
+
+
+# 加载模型和分词器
+load_dir = "/autodl-fs/data/codebert"  # 指定保存模型的路径
+tokenizer = RobertaTokenizer.from_pretrained(load_dir)
+model = RobertaModel.from_pretrained(load_dir)
+
+
 
 # 获取代码片段的向量表示
 def get_code_embedding(code):
@@ -22,7 +54,7 @@ def get_code_embedding(code):
     return outputs.last_hidden_state[:, 0, :].numpy().flatten()  # 提取 [CLS] 向量
 
 # 读取 JSON 数据文件
-file_path = r'D:\GRADUATION\Nju\Dataset\MyDataSet\codereviewer_v1\many_withdiff.json'
+file_path = r'/autodl-fs/data/dataSet/many_withdiff.json'
 
 # 创建 Faiss 索引
 index = faiss.IndexFlatL2(768)  # 使用 L2 距离度量，CodeBERT 输出为 768 维向量
@@ -36,7 +68,9 @@ with open(file_path, 'r', encoding='utf-8') as f:
     data_list = json.load(f)
     for_time = 0
     # 将每条数据添加到 Faiss 索引和元数据中
+    print("开始处理数据")
     for idx, data in enumerate(data_list):
+        print(f"Processing data {idx + 1}...")
         old = data["old_code"]
         new = data["sourceAfterFix"]
         bug_type = data["bugType"]
@@ -67,10 +101,10 @@ with open(file_path, 'r', encoding='utf-8') as f:
         metadata[idx * 4 + 3] = {"bugType": bug_type, "old": old, "new": new, "error_code": error_code}  # error_code
 
 # 存储 Faiss 索引到文件
-faiss.write_index(index, "code_defect_index.index")
+faiss.write_index(index, "code_defect_index_v1.index")
 
 # 存储元数据
-with open("metadata.pkl", "wb") as f:
+with open("metadata_v1.pkl", "wb") as f:
     pickle.dump(metadata, f)
 
 # 打印向量数据库中存入的总数据条数

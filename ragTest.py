@@ -25,9 +25,12 @@ output_file_path = 'output.json'
 
 # 编码器模型
 em_model_path = r'/autodl-fs/data/codebert'
+trained_weights_path = r'/autodl-fs/data/retriver/RAG_FOR_ACR/save/contrastive_model.pt'
 # 加载 CodeBERT 模型和分词器
 em_tokenizer = RobertaTokenizer.from_pretrained(em_model_path)
 em_model = RobertaModel.from_pretrained(em_model_path)
+em_model.load_state_dict(torch.load(trained_weights_path), strict=False)
+em_model.eval()
 
 # 生成器模型
 gen_model_path = r'/autodl-fs/data/vicuna-7b-v1.5'
@@ -115,15 +118,15 @@ def get_result():
     input_data_path = r'/autodl-fs/data/dataSet/many_withdiff_largesstubs.json'
     with open(input_data_path, 'r') as f:
         data = json.load(f)
-    index = faiss.read_index("code_defect_index.index")
+    index = faiss.read_index("dataDependence/code_defect_index.index")
     record_num = 0
     time_sum_start = time.time()
     for record in data:
         start_time = time.time()
         print("原始数据：", record)
-        new_code = record.get('sourceBeforeFix', '')
-        print("新代码：",new_code)
-        query_vector = get_code_embedding(new_code)
+        change_code = record.get('sourceBeforeFix', '')
+        print("新代码：",change_code)
+        query_vector = get_code_embedding(change_code)
         query_vector = np.array([query_vector], dtype=np.float32)
         # 归一化查询向量
         # todo 对比方法记得换
@@ -131,7 +134,7 @@ def get_result():
         # 进行检索，返回最相似的k个结果
         D, I = index.search(query_vector, k=2)  # 返回最相似的两个结果
         # 载入元数据
-        with open("metadata.pkl", "rb") as f:
+        with open("dataDependence/metadata.pkl", "rb") as f:
             metadata = pickle.load(f)
         result_record = []
         for idx in I[0]:
@@ -149,7 +152,7 @@ def get_result():
         You are a coding assistant. Your task is to analyze the given record and produce a JSON output.
         description: You are a coding assistant.Your task is to analyze the code diff I gave you, identify the only defective code in it, and give the defect type, as well as your suggested repair code.Refer to simpleFix while generating the fix.
         Input: {record}
-        standard output Example:{output_template}.defect_code is the defective code you found from sourceBeforeFix, and fix is the repair code you gave for the identified defect_code. 
+        standard output Example:{output_template}.defect_code is the defective code you found from sourceBeforeFix, and fix is the repair code you gave for the identified defect_code. Please note that this is just a template, and the code and other information inside is just an example, not what you need to refer to.
         Output must be valid JSON.Your final output should only have one result.And you should start with 'final output' before final output
         """
         # 将生成结果存入文件
@@ -209,7 +212,7 @@ def get_result():
         }
         print("生成的数据：",data)
         # 定义文件路径
-        file_path = "/root/autodl-fs/dataSet/output/gen_data_v2.xlsx"
+        file_path = "/root/autodl-fs/dataSet/output/gen_data_withretriver_v1.xlsx"
 
         # 将新数据转换为 DataFrame
         new_data = pd.DataFrame(data)
@@ -252,7 +255,7 @@ def get_result():
     }
     print("生成的数据：", data)
     # 定义文件路径
-    file_path = "/root/autodl-fs/dataSet/output/gen_data_v2.xlsx"
+    file_path = "/root/autodl-fs/dataSet/output/gen_data_withretriver_v1.xlsx"
 
     # 将新数据转换为 DataFrame
     new_data = pd.DataFrame(data)
