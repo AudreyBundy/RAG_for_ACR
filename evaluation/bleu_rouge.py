@@ -8,6 +8,31 @@ import re
 from collections import Counter
 import math
 
+
+def get_overlap_and_diff(str1, str2):
+    overlap_length = 0
+    for c1, c2 in zip(str1, str2):
+        if c1 == c2:
+            overlap_length += 1
+        else:
+            break
+    return str1[:overlap_length], str2[overlap_length:]
+
+
+def deal_fix_code(my_defect_code,defect_code,my_fix,fix):
+    _, same_s1 = get_overlap_and_diff(my_defect_code, defect_code)
+    _, same_s2 = get_overlap_and_diff(my_fix, fix)
+
+    if same_s1 == same_s2:
+        fix = fix.replace(same_s1, "")
+
+    return fix
+
+
+
+
+
+
 def tokenize_code(code):
     """简单的代码分词器，将代码按空格、运算符、括号等进行分割"""
     # 用正则表达式将代码中的标识符、关键字、运算符分离出来
