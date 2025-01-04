@@ -11,7 +11,7 @@ import pandas as pd
 
 from evaluation.bleu_rouge import *
 from evaluation.precision import calculate_precision,calculate_defect_type_precision
-
+from peft import PeftModel, PeftConfig
 
 import os
 
@@ -42,7 +42,8 @@ em_model = RobertaModel.from_pretrained(load_dir)
 
 # 生成器模型
 gen_model_path = r'/autodl-fs/data/vicuna-7b-v1.5'
-
+gen_model_path_fun = r'/autodl-fs/data/testCode/trainGen/vicuna-finetunedv5'
+# gen_model_path = r'./trainGen/vicuna-finetuned'
 # 加载分词器
 gen_tokenizer = AutoTokenizer.from_pretrained(gen_model_path, use_fast=False)
 # 加载模型并分配到设备
@@ -51,18 +52,20 @@ gen_model = AutoModelForCausalLM.from_pretrained(
     torch_dtype=torch.float16,  # 使用半精度
     device_map="auto"          # 自动分配设备
 )
+# adapter_config = PeftConfig.from_pretrained(gen_model_path_fun)
+# gen_model = PeftModel.from_pretrained(gen_model, gen_model_path_fun)
 gen_model.eval()
 # 创建文本生成 pipeline
-generator = pipeline(
-    "text-generation",
-    model=gen_model,
-    tokenizer=gen_tokenizer
-)
+# generator = pipeline(
+#     "text-generation",
+#     model=gen_model,
+#     tokenizer=gen_tokenizer
+# )
 
 # 从模型输出中提取结果
 def output_split(generated_text):
     # 找到起始点的文本
-    marker = "output must be valid JSON.Your final output should only have one result.And you should start with 'final output' before final output"
+    marker = "Output must directly relate to old_code and be valid JSON. Start with 'final output'."
 
     # 提取 marker 后的内容
     marker_index = generated_text.find(marker)
@@ -252,18 +255,68 @@ def get_result():
         #     - `old`: The defective code snippet (for `"True"`) or a clean code snippet (for `"False"`).
         #     - `new`: The corrected code snippet (for `"True"`).
 
+        # todo 评估结果最高的prompt
+        # prompt =f"""
+        # You are a coding assistant. Analyze the old_code I gave you, and use similarFix as a reference.
+        #     - First, identify the defect_code in old_code by analyzing it in comparison with the similarFix examples.
+        #     - Second, generate a fix for the identified defect_code.
+        #     - Third, classify the defect into one of the predefined bug types.
+        #           **Bug Types**
+        #              Use the following bug types to classify any identified defect:
+        #              'OVERLOAD_METHOD_MORE_ARGS', 'SWAP_BOOLEAN_LITERAL', 'CHANGE_MODIFIER', 'CHANGE_NUMERAL', 'CHANGE_OPERAND', 'ADD_THROWS_EXCEPTION', 'DELETE_THROWS_EXCEPTION', 'OVERLOAD_METHOD_DELETED_ARGS', 'CHANGE_CALLER_IN_FUNCTION_CALL', 'MORE_SPECIFIC_IF', 'CHANGE_OPERATOR', 'CHANGE_IDENTIFIER', 'DIFFERENT_METHOD_SAME_ARGS', 'CHANGE_UNARY_OPERATOR', 'SWAP_ARGUMENTS', 'LESS_SPECIFIC_IF','CHANGE_NUMERAL', 'MORE_SPECIFIC_IF', 'CHANGE_UNARY_OPERATOR', 'CHANGE_OPERATOR', 'OVERLOAD_METHOD_DELETED_ARGS', 'CHANGE_CALLER_IN_FUNCTION_CALL', 'OVERLOAD_METHOD_MORE_ARGS', 'ADD_THROWS_EXCEPTION', 'SWAP_ARGUMENTS', 'CHANGE_MODIFIER', 'LESS_SPECIFIC_IF', 'CHANGE_OPERAND', 'DIFFERENT_METHOD_SAME_ARGS', 'CHANGE_IDENTIFIER', 'DELETE_THROWS_EXCEPTION', 'SWAP_BOOLEAN_LITERAL'
+        #
+        # Input:
+        #         old_code: {record_remove_key['old_code']}
+        #         similarFix: {record_remove_key['similarFix']}
+        # Standard output Example:{output_template}defect_code is the defective code you found from sourceBeforeFix, and fix is the repair code you gave for the identified defect_code. Please note that this is just a template, and the code and other information inside is just an example, not what you need to refer to.
+        # output must be valid JSON.Your final output should only have one result.And you should start with 'final output' before final output.
+        # """
+        prompt = f"""
+        You are a coding assistant. Analyze the old_code and identify defects using similarFix as reference.
+        1. Find defect_code in old_code.
+        2. Generate a fix for defect_code based on similarFix examples.
+        3. Classify the defect into predefined bug types.
 
-        prompt =f"""
-        You are a coding assistant. Analyze the old_code I gave you, and use similarFix as a reference.
-            - First, identify the defect_code in old_code by analyzing it in comparison with the similarFix examples.
-            - Second, generate a fix for the identified defect_code.
-            - Third, classify the defect into one of the predefined bug types.
         Input:
-                old_code: {record_remove_key['old_code']}
-                similarFix: {record_remove_key['similarFix']}{record_remove_key}
-        Standard output Example:{output_template}defect_code is the defective code you found from sourceBeforeFix, and fix is the repair code you gave for the identified defect_code. Please note that this is just a template, and the code and other information inside is just an example, not what you need to refer to.
-        output must be valid JSON.Your final output should only have one result.And you should start with 'final output' before final output.
+            old_code: {record_remove_key['old_code']}
+            similarFix: {record_remove_key['similarFix']}
+        Output format (JSON):
+        {{
+            "has_issue": "True",
+            "defect_code": "<substring of old_code>",
+            "fix": "<fix for defect_code>",
+            "bugType": "<bug type>"
+        }}
+
+        Output must directly relate to old_code and be valid JSON. Start with 'final output'.
         """
+        # prompt = f"""
+        # You are a coding assistant. Analyze the old_code I gave you, and use similarFix as a reference.
+        #
+        #     - First, identify the defect_code in old_code by analyzing it in comparison with the similarFix examples.
+        #     - Second, generate a fix for the identified defect_code.
+        #     - Third, classify the defect into one of the predefined bug types.
+        #
+        #     ** Bug Types **
+        #     Use the following bug types to classify any identified defect:
+        #     'OVERLOAD_METHOD_MORE_ARGS', 'SWAP_BOOLEAN_LITERAL', 'CHANGE_MODIFIER', 'CHANGE_NUMERAL', 'CHANGE_OPERAND', 'ADD_THROWS_EXCEPTION', 'DELETE_THROWS_EXCEPTION', 'OVERLOAD_METHOD_DELETED_ARGS', 'CHANGE_CALLER_IN_FUNCTION_CALL', 'MORE_SPECIFIC_IF', 'CHANGE_OPERATOR', 'CHANGE_IDENTIFIER', 'DIFFERENT_METHOD_SAME_ARGS', 'CHANGE_UNARY_OPERATOR', 'SWAP_ARGUMENTS', 'LESS_SPECIFIC_IF', 'CHANGE_NUMERAL', 'MORE_SPECIFIC_IF', 'CHANGE_UNARY_OPERATOR', 'CHANGE_OPERATOR', 'OVERLOAD_METHOD_DELETED_ARGS', 'CHANGE_CALLER_IN_FUNCTION_CALL', 'OVERLOAD_METHOD_MORE_ARGS', 'ADD_THROWS_EXCEPTION', 'SWAP_ARGUMENTS', 'CHANGE_MODIFIER', 'LESS_SPECIFIC_IF', 'CHANGE_OPERAND', 'DIFFERENT_METHOD_SAME_ARGS', 'CHANGE_IDENTIFIER', 'DELETE_THROWS_EXCEPTION', 'SWAP_BOOLEAN_LITERAL'
+        #
+        #     Input:
+        #         old_code: {record_remove_key['old_code']}
+        #         similarFix: {record_remove_key['similarFix']}
+        #
+        #     Your task is to analyze the old_code and perform the following steps:
+        #     1. Identify any defect_code in old_code based on the given similarFix examples.
+        #     2. Generate a fix for the identified defect_code.
+        #     3. Classify the identified defect into one of the predefined bug types.
+        #
+        #     Expected Output:
+        #     Your final output should only have one result.And you should start with 'final output' before final output.Your output should strictly follow this format in JSON:
+        #     {output_template}
+
+
+
+
         # prompt = f"""
         # You are a coding assistant. Analyze the old_code I gave you, and use similarFix as a reference.
         # - First, identify the defect_code in old_code by analyzing it in comparison with the similarFix examples.
@@ -296,14 +349,18 @@ def get_result():
         #     template=prompt
         # )
         # print("prompt：",prompt)
-        output = generator(prompt, max_new_tokens=4096, do_sample=True, temperature=0.7)
+        # 使用分词器将 prompt 转换为张量
+        inputs = gen_tokenizer(prompt, return_tensors="pt").to("cuda")
+        output = gen_model.generate(input_ids=inputs["input_ids"], max_new_tokens=1024, do_sample=True, temperature=0.7)
         # 提取 'generated_text' 字段中的最后一个 JSON
-        generated_text = output[0]['generated_text']
+        # 解码生成的输出
+        generated_text = gen_tokenizer.decode(output[0], skip_special_tokens=True)
+        # generated_text = output[0]['generated_text']
         print("原始结果：",generated_text)
 
         hasissue,bugtype,defect_code,fix = output_split(generated_text)
-        if hasissue is None or bugtype is None or defect_code is None or fix is None:
-            continue
+        # if bugtype is None or defect_code is None or fix is None:
+        #     continue
         if bugtype:
             bugtype = bugtype.replace("\\","")
         if defect_code:
@@ -360,7 +417,7 @@ def get_result():
         print("生成的数据：",data)
         # 定义文件路径
         # file_path = "/root/autodl-fs/dataSet/output/gen_data_myp_mr_truere_v1.xlsx"
-        file_path = "/root/autodl-fs/dataSet/output/mr_cbforsure.xlsx"
+        file_path = "/root/autodl-fs/dataSet/output/mr_cbforsure_gentrain.xlsx"
         print("file_path:",file_path)
         # 将新数据转换为 DataFrame
         new_data = pd.DataFrame(data)
@@ -407,7 +464,7 @@ def get_result():
     }
     print("生成的数据：", data)
     # 定义文件路径
-    file_path = "/root/autodl-fs/dataSet/output/mr_cbforsure.xlsx"
+    file_path = "/root/autodl-fs/dataSet/output/mr_cbforsure_gentrain.xlsx"
 
     # 将新数据转换为 DataFrame
     new_data = pd.DataFrame(data)

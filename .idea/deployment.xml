@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="root@connect.westc.gpuhub.com:44014 password (2)" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="root@connect.westc.gpuhub.com:44014 password (3)" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="root@connect.westb.seetacloud.com:45775 password">
         <serverdata>
@@ -17,6 +17,13 @@
         </serverdata>
       </paths>
       <paths name="root@connect.westc.gpuhub.com:44014 password (2)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/autodl-fs/data/testCode" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@connect.westc.gpuhub.com:44014 password (3)">
         <serverdata>
           <mappings>
             <mapping deploy="/autodl-fs/data/testCode" local="$PROJECT_DIR$" />
