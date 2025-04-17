@@ -11,8 +11,9 @@ import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
 # 加载模型和分词器
-# load_dir = r'/autodl-fs/data/testCode/retriver/RAG_FOR_ACR/save4'  # 指定保存模型的路径
-load_dir = r'/autodl-fs/data/codebert'
+# load_dir = r'/autodl-fs/data/dataDealing/retriver/RAG_FOR_ACR/save_2-16_finalV2'  # 指定保存模型的路径
+load_dir = r'/autodl-fs/data/dataDealing/retriver/RAG_FOR_ACR/save_3_24_finalV1_type'  # 指定保存模型的路径
+# load_dir = r'/autodl-fs/data/codebert'
 tokenizer = RobertaTokenizer.from_pretrained(load_dir)
 model = RobertaModel.from_pretrained(load_dir)
 print(load_dir)
@@ -31,9 +32,9 @@ def load_json_data(file_path):
 # 随机抽取指定数量的数据
 def sample_data(data, num_samples):
     # 随机获取
-    # return random.sample(data, num_samples)
+    return random.sample(data, num_samples)
     # 顺序获取
-    return data[:num_samples]
+    # return data[:num_samples]
 
 # 获取未被选中的数据
 def get_remaining_data(data, sampled_data):
@@ -42,56 +43,20 @@ def get_remaining_data(data, sampled_data):
 
 
 # 创建 Faiss 索引并插入数据
-# 已废弃
-def create_faiss_index(data1, data2):
-    # 创建 Faiss 索引（使用 L2 距离度量，CodeBERT 输出为 768 维向量）
-    index = faiss.IndexFlatL2(768)
-    metadata = {}
-
-    i = 0
-    # 遍历数据并提取向量，存储索引
-    for idx, data in enumerate(data1 + data2):
-        i +=1
-        print(i)
-        old = data["old_code"]
-        new = data["sourceAfterFix"]
-        bug_type = data["bugType"]
-        error_code = data["sourceBeforeFix"]
-
-        # 获取 'old'、'new'、'bugType' 和 'error_code' 的向量表示
-        old_vector = get_code_embedding(old)
-        new_vector = get_code_embedding(new)
-        bug_type_vector = get_code_embedding(bug_type)
-        error_code_vector = get_code_embedding(error_code)
-
-        # 将向量转换为 NumPy 数组格式（Faiss 只支持 NumPy 数组）
-        old_vector = np.array([old_vector], dtype=np.float32)
-        new_vector = np.array([new_vector], dtype=np.float32)
-        bug_type_vector = np.array([bug_type_vector], dtype=np.float32)
-        error_code_vector = np.array([error_code_vector], dtype=np.float32)
-
-        # 将向量添加到 Faiss 索引中
-        index.add(old_vector)
-        index.add(new_vector)
-        index.add(bug_type_vector)
-        index.add(error_code_vector)
-
-        # 存储元数据
-        metadata[idx * 4] = {"bugType": bug_type, "old": old, "fix": new, "defect_code": error_code}  # old
-        metadata[idx * 4 + 1] = {"bugType": bug_type, "old": old, "fix": new, "defect_code": error_code}  # new
-        metadata[idx * 4 + 2] = {"bugType": bug_type, "old": old, "fix": new, "defect_code": error_code}  # bugType
-        metadata[idx * 4 + 3] = {"bugType": bug_type, "old": old, "fix": new, "defect_code": error_code}  # error_code
-
-    return index, metadata
-# 创建 Faiss 索引并插入数据
 # 创建 Faiss 索引并插入 defect_code 的数据
 def create_defect_code_index(data1, data2):
     # 初始化专用于 defect_code 的索引
     index = faiss.IndexFlatIP(768)  # 使用点积（Inner Product）索引
     metadata = {}
-
+    i = 0
+    print("data1:",len(data1))
+    print("data2:",len(data2))
     for idx, data in enumerate(data1 + data2):
+        i += 1
+        print(i)
         defect_code = data["sourceBeforeFix"]
+        # 以old_code_RE为主键建立索引
+        # old_code = data["old_code_RE"]
         print(defect_code)
         # 获取 defect_code 的向量表示
         defect_code_vector = get_code_embedding(defect_code)
@@ -103,10 +68,44 @@ def create_defect_code_index(data1, data2):
 
         # 存储元数据（记录 defect_code 和其他信息）
         metadata[idx] = {
+            # "old_code_RE": old_code,
             "defect_code": defect_code,
             "bugType": data["bugType"],
             "old_code": data["old_code"],
             "fix": data["sourceAfterFix"]
+        }
+
+    return index, metadata
+
+
+def create_diff_index(data1, data2):
+    # 初始化专用于 defect_code 的索引
+    index = faiss.IndexFlatIP(768)  # 使用点积（Inner Product）索引
+    metadata = {}
+    i = 0
+    print("data1:",len(data1))
+    print("data2:",len(data2))
+    for idx, data in enumerate(data1 + data2):
+        i += 1
+        print(i)
+        defect_code = data["diff"]
+        print(f"当前数目：{i}")
+        # 以old_code_RE为主键建立索引
+        # old_code = data["old_code_RE"]
+        print(defect_code)
+        # 获取 defect_code 的向量表示
+        defect_code_vector = get_code_embedding(defect_code)
+        defect_code_vector = np.array([defect_code_vector], dtype=np.float32)
+        faiss.normalize_L2(defect_code_vector)  # 归一化向量
+
+        # 将向量添加到索引中
+        index.add(defect_code_vector)
+
+        # 存储元数据（记录 defect_code 和其他信息）
+        metadata[idx] = {
+            # "old_code_RE": old_code,
+            "diff": data["diff"],
+            "has_issue": data["has_issue"]
         }
 
     return index, metadata
@@ -171,33 +170,48 @@ def save_index():
     file_path2 = '/autodl-fs/data/dataSet/many_withdiff_largesstubs.json'  # 文件2路径
 
     # 读取数据
-    data1 = load_json_data(file_path1)
-    data2 = load_json_data(file_path2)
-
-    # 随机抽取 5,000 条数据和 30,000 条数据
-    sampled_data1 = sample_data(data1, 6000)
-    sampled_data2 = sample_data(data2, 0)
-
-    # 获取未被选中的数据
+    # data1 = load_json_data(file_path1)
+    # data2 = load_json_data(file_path2)
+    #
+    # # 随机抽取 5,000 条数据和 30,000 条数据
+    # sampled_data1 = sample_data(data1, 5000)
+    # sampled_data2 = sample_data(data2, 10000)
+    # print("Sampled data num", len(sampled_data1) + len(sampled_data2))
+    # # 获取未被选中的数据
     # remaining_data1 = get_remaining_data(data1, sampled_data1)
     # remaining_data2 = get_remaining_data(data2, sampled_data2)
+    # # 将两个数据合并到一个字典中
+    # combined_data = remaining_data1 + remaining_data2
+    # print("Remaining data num", len(combined_data))
+    # #
+    # # 将合并后的数据写入到同一个 JSON 文件
+    # with open("combined_remaining_data_-15000.json", "w", encoding="utf-8") as f:
+    #     json.dump(combined_data, f, ensure_ascii=False, indent=4)
 
-    # 将未选中的数据保存到新的 JSON 文件
-    # with open("remaining_data1.json", "w", encoding="utf-8") as f:
-    #     json.dump(remaining_data1, f, ensure_ascii=False, indent=4)
-
-    # with open("remaining_data2.json", "w", encoding="utf-8") as f:
-    #     json.dump(remaining_data2, f, ensure_ascii=False, indent=4)
-
+    # # # 将未选中的数据保存到新的 JSON 文件
+    # # with open("remaining_data1_beststatus.json", "w", encoding="utf-8") as f:
+    # #     json.dump(remaining_data1, f, ensure_ascii=False, indent=4)
+    # #
+    # # with open("remaining_data2.json", "w", encoding="utf-8") as f:
+    # #     json.dump(remaining_data2, f, ensure_ascii=False, indent=4)
+    #
     # 创建 Faiss 索引并插入抽取的数据
-    index, metadata = create_defect_code_index(sampled_data1, sampled_data2)
-
+    # file_path = '/autodl-fs/data/dataSet/secret_v1.json'
+    file_path = '/autodl-fs/data/data/V1/data_for_rag/ref-database_hasissue.json'
+    sampled_data = load_json_data(file_path)
+    # sampled_data1 = load_json_data('/autodl-fs/data/dataSet/pyData/split_data/test.json')
+    # sampled_data = sampled_data[1200:]
+    print("Sampled data num", len(sampled_data))
+    # print("Sampled data1 num", len(sampled_data1))
+    sampled_data2 = sample_data(sampled_data, 0)
+    # index, metadata = create_defect_code_index(sampled_data,sampled_data2)
+    index, metadata = create_diff_index(sampled_data, sampled_data2)
     # 存储 Faiss 索引到文件
-    faiss.write_index(index, "mr_cbforsure.index")
+    faiss.write_index(index, "final_task1_v1_type_3_24.index")
 
     # 存储元数据
     print("Saving metadata...")
-    with open("metadata_mr_cbforsure.pkl", "wb") as f:
+    with open("metadata_task1_v1_type_3_24.pkl", "wb") as f:
         pickle.dump(metadata, f)
     print("Metadata saved.")
 
@@ -207,10 +221,11 @@ def save_index():
 # 主流程
 def main():
     save_index()
-    q_code = 'ServiceLoader.load(ReportInteraction.class)'
-    print(q_code)
-    result_re = search_defect_code(q_code, "/autodl-fs/data/testCode/dataDependence/mr_cbforsure.index", "/autodl-fs/data/testCode/dataDependence/metadata_mr_cbforsure.pkl")
-    print(result_re)
+    # q_code = 'meta.setContentEncoding(Mimetypes.MIMETYPE_OCTET_STREAM)'
+    # print(q_code)
+    # result_re = search_defect_code(q_code, "/autodl-fs/data/dataDealing/dataDependence/final_v1.index",
+    #                                "/autodl-fs/data/dataDealing/dataDependence/metadata_final_v1.pkl")
+    # print(result_re)
 
 if __name__ == '__main__':
     main()

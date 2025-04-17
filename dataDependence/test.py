@@ -9,7 +9,7 @@ import os
 
 # 设置环境变量以避免库冲突
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
-print("start")
+# print("start")
 
 # 加载模型和分词器
 # load_dir = r'/autodl-fs/data/testCode/retriver/RAG_FOR_ACR/save'  # 指定保存模型的路径
@@ -136,7 +136,40 @@ def main():
     print(result_re)
 
 if __name__ == '__main__':
-    main()
+
+    import json
+
+    # 读取 JSON 文件
+    with open('/autodl-fs/data/data/V1/data_for_rag/ref-database_hasissue.json', 'r') as f:
+        data = json.load(f)
+
+    # 使用一个集合来存储已经见过的 (bugType, sourceBeforeFix) 对
+    seen = set()
+    unique_data = []
+
+    for entry in data:
+        # 提取 bugType 和 sourceBeforeFix 作为唯一标识
+        bug_type = entry.get('bugType')
+        source_before_fix = entry.get('sourceBeforeFix')
+        old_code = entry.get('old_code')
+
+        # 创建一个唯一标识元组
+        unique_id = (bug_type, source_before_fix, old_code)
+
+        # 如果这个唯一标识没有出现过，则加入结果列表
+        if unique_id not in seen:
+            seen.add(unique_id)
+            unique_data.append(entry)
+
+    # 保存去重后的数据到新的 JSON 文件
+    print(f"去重前的数据条数: {len(data)}")
+    with open('/autodl-fs/data/data/V1/data_for_rag/ref-database_hasissuev2.json', 'w') as f:
+        json.dump(unique_data, f, indent=4)
+    print(f"去重后的数据条数: {len(unique_data)}")
+
+    print(f"去重后的数据已保存到 '/autodl-fs/data/data/V1/data_for_rag/ref-database_no_duplicates.json'")
+
+    # # main()
 
 
 

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.10.8 (sftp://root@connect.westc.gpuhub.com:44014/root/miniconda3/bin/python3) (2)" project-jdk-type="Python SDK" />
+  <component name="Black">
+    <option name="sdkName" value="Remote Python 3.10.8 (sftp://root@connect.westc.gpuhub.com:44050/root/.virtualenvs/dataDealing/bin/python)" />
+  </component>
+  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.12.3 (sftp://root@connect.nmb1.seetacloud.com:36922/root/miniconda3/bin/python3)" project-jdk-type="Python SDK" />
 </project>
